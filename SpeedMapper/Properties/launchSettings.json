@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SpeedMapper": {
+      "commandName": "Project",
+      "nativeDebugging": true
+    }
+  }
+}
