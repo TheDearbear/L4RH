@@ -1,33 +1,25 @@
 ﻿using L4RH.Readers;
+using System.Buffers.Binary;
 using System.Reflection;
 
+using WaitTaskData = (System.Threading.Tasks.Task<byte[]> Task, System.Threading.CancellationTokenSource CancellationTokenSource);
 using EventChunkData = (uint ChunkId, object Data);
 
 namespace L4RH;
 
 public class ChunkDeserializer
 {
-    public IEnumerable<byte> Data { get; private set; }
-    public List<Assembly> ReadersSources { get; }
-    public SortedSet<long> NewFileMarkers { get; }
+    public IEnumerable<byte> Data { get; private set; } = Enumerable.Empty<byte>();
+    public List<Assembly> ReadersSources { get; } = new();
+    public SortedSet<long> NewFileMarkers { get; } = new();
 
     public event EventHandler<EventChunkData>? FoundChunk;
     public event Action? SerializationEnded;
     public event EventHandler<List<EventChunkData>>? SerializationEndedChunks;
 
-    private readonly IDictionary<uint, IChunkReader> ChunkReaders;
-    private readonly List<Task<byte[]>> WaitableTasks;
-    private readonly List<EventChunkData> AllChunks;
-
-    public ChunkDeserializer()
-    {
-        Data = Enumerable.Empty<byte>();
-        ReadersSources = new List<Assembly>();
-        NewFileMarkers = new SortedSet<long>();
-        ChunkReaders = new Dictionary<uint, IChunkReader>();
-        WaitableTasks = new();
-        AllChunks = new();
-    }
+    private readonly IDictionary<uint, IChunkReader> _chunkReaders = new Dictionary<uint, IChunkReader>();
+    private readonly List<WaitTaskData> _waitTasks = new();
+    private readonly List<EventChunkData> _allChunks = new();
 
     public void AddData(byte[] data)
     {
@@ -37,33 +29,39 @@ public class ChunkDeserializer
 
     public void AddDataFromFile(string path)
     {
-        WaitableTasks.Add(File.ReadAllBytesAsync(path));
+        var tokenSource = new CancellationTokenSource();
+        _waitTasks.Add(new(File.ReadAllBytesAsync(path, tokenSource.Token), tokenSource));
     }
 
     public void ClearData()
     {
         Data = Enumerable.Empty<byte>();
         NewFileMarkers.Clear();
+
+        foreach (var tuple in _waitTasks)
+            tuple.Item2.Cancel();
+
+        _waitTasks.Clear();
     }
 
-    public Thread Start()
+    public Task Start()
     {
-        ThreadStart run = () =>
+        Action run = () =>
         {
             lock (Data)
             {
                 #region Wait and process tasks
 
-                Task.WaitAll(WaitableTasks.ToArray());
+                Task.WaitAll(_waitTasks.Select(data => data.Task).ToArray());
 
-                foreach (Task<byte[]> task in WaitableTasks)
+                foreach (var data in _waitTasks)
                 {
-                    if (!task.IsCompleted) continue;
+                    if (!data.Task.IsCompleted) continue;
 
-                    AddData(task.Result);
+                    AddData(data.Task.Result);
                 }
 
-                WaitableTasks.Clear();
+                _waitTasks.Clear();
 
                 #endregion
 
@@ -77,9 +75,9 @@ public class ChunkDeserializer
                         foreach (Type type in types)
                         {
                             if (Activator.CreateInstance(type) is not IChunkReader chunkReader) return;
-                            if (ChunkReaders.ContainsKey(chunkReader.ChunkId)) return;
+                            if (_chunkReaders.ContainsKey(chunkReader.ChunkId)) return;
 
-                            ChunkReaders.Add(chunkReader.ChunkId, chunkReader);
+                            _chunkReaders.Add(chunkReader.ChunkId, chunkReader);
                         }
                     }
                     catch (Exception e)
@@ -107,9 +105,27 @@ public class ChunkDeserializer
 
                     span.Pointer = chunkStart;
 
+                    // JDLZ Compressed Chunk
+                    if (id == 0x5A4C444A && length == 0x00001002)
+                    {
+                        var compressedSize = BinaryPrimitives.ReadInt32LittleEndian(span.Span.Slice(span.Pointer + 12, 4));
+
+                        byte[] decompressed = JDLZ.Decompress(span.ReadArray(compressedSize).ToArray());
+
+                        var decompressedReader = new ChunkDeserializer();
+                        decompressedReader.AddData(decompressed);
+                        decompressedReader.ReadersSources.AddRange(ReadersSources);
+
+                        decompressedReader.FoundChunk += FoundChunk;
+                        decompressedReader.SerializationEndedChunks += (sender, list) => _allChunks.AddRange(list);
+
+                        decompressedReader.Start().Wait();
+                        continue;
+                    }
+
                     var chunkBuffer = new BinarySpan(span.ReadArray(length + 8));
 
-                    if (!ChunkReaders.TryGetValue(id, out IChunkReader? chunkReader) || chunkReader is null)
+                    if (!_chunkReaders.TryGetValue(id, out IChunkReader? chunkReader) || chunkReader is null)
                         continue;
 
                     int pointer = span.Pointer;
@@ -123,22 +139,19 @@ public class ChunkDeserializer
 
                     FoundChunk?.Invoke(this, result);
                     if (SerializationEndedChunks is not null)
-                        AllChunks.Add(result);
+                        _allChunks.Add(result);
                 }
             }
         };
 
         run += () =>
         {
-            ChunkReaders.Clear();
+            _chunkReaders.Clear();
             SerializationEnded?.Invoke();
-            SerializationEndedChunks?.Invoke(this, AllChunks);
-            AllChunks.Clear();
+            SerializationEndedChunks?.Invoke(this, _allChunks);
+            _allChunks.Clear();
         };
 
-        Thread thread = new(run) { IsBackground = true };
-        thread.Start();
-
-        return thread;
+        return Task.Run(run);
     }
 }

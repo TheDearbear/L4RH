@@ -53,7 +53,7 @@ internal class SceneryInstance : IChunkReader
             if (Matrix4x4.Decompose(matrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
             {
                 var scaleMatrix = Matrix4x4.CreateScale(scale);
-                var rotationMatrix = Matrix4x4.CreateFromQuaternion(new(rotation.Y, -rotation.Z, rotation.X, rotation.W));
+                var rotationMatrix = Matrix4x4.CreateFromQuaternion(new(rotation.X, -rotation.Z, rotation.Y, rotation.W));
                 var translationMatrix = Matrix4x4.CreateTranslation(translation);
 
                 matrix = scaleMatrix * rotationMatrix * translationMatrix;

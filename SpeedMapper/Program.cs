@@ -1,6 +1,4 @@
-﻿#define SPEEDMAPPER_IMGUI
-
-using ImGuiNET;
+﻿using ImGuiNET;
 using L4RH;
 using L4RH.Model;
 using L4RH.Model.Sceneries;
@@ -25,10 +23,7 @@ internal class Program
     static bool _loaded = false;
     static FreeMoveCamera _camera = null!;
     static KeyBinder<Key> KeyBinder = new();
-
-#if SPEEDMAPPER_IMGUI
     static ImGuiRenderer _imgui = null!;
-#endif
 
     static void Main()
     {
@@ -74,11 +69,8 @@ internal class Program
         #endregion
 
         _camera = new FreeMoveCamera() { AspectRatio = 16f / 9, FOV = 75, ZFar = 5000 };
-
-#if SPEEDMAPPER_IMGUI
         _imgui = new(Single.GraphicsDevice, Single.GraphicsDevice.SwapchainFramebuffer.OutputDescription, Single.MainWindow.Width, Single.MainWindow.Height);
         SetupImGuiStyle();
-#endif
 
         #region Window Setup
 
@@ -86,10 +78,7 @@ internal class Program
         Single.MainWindow.Resized += () =>
         {
             Single.MainRenderContext.Resize((uint)Single.MainWindow.Width, (uint)Single.MainWindow.Height);
-
-#if SPEEDMAPPER_IMGUI
             _imgui.WindowResized(Single.MainWindow.Width, Single.MainWindow.Height);
-#endif
         };
 
         #endregion
@@ -98,10 +87,7 @@ internal class Program
 
         Single.MainRenderContext = new VeldridRenderContext(Single.GraphicsDevice, _camera) { BackgroundColor = new(0, 0, 0, 255) };
         Single.MainRenderContext.NewLogicFrame += OnLogic;
-
-#if SPEEDMAPPER_IMGUI
         Single.MainRenderContext.NewRenderFrame += ImGuiRender;
-#endif
 
         #endregion
 
@@ -143,15 +129,12 @@ internal class Program
         {
             Console.WriteLine("Updating Region. Please wait...");
             context.UpdateRegion(Single.Region);
-            Console.WriteLine("Updated");
             _loaded = false;
         }
 
         if (input is not null)
         {
-#if SPEEDMAPPER_IMGUI
             _imgui.Update((float)(delta / 1000), input);
-#endif
 
             KeyBinder.Update(input.KeyEvents.Select(e => new ValueTuple<Key, bool>(e.Key, e.Down)));
         }
@@ -166,6 +149,7 @@ internal class Program
         char diskLetter = typeof(Program).Assembly.Location[0];
 
         loader.ReadersSources.Add(Assembly.LoadFile(diskLetter + ":\\L4RH\\csharp\\UG2Mappings\\bin\\Debug\\net6.0\\UG2Mappings.dll"));
+        loader.AddDataFromFile(diskLetter + ":\\L4RH\\GlobalB.lzc");
         loader.AddDataFromFile(diskLetter + ":\\L4RH\\L4RA.BUN");
         loader.AddDataFromFile(diskLetter + ":\\L4RH\\STREAML4RA.BUN");
 
@@ -236,10 +220,8 @@ internal class Program
 
     static void KeyLogic()
     {
-#if SPEEDMAPPER_IMGUI
         if (ImGui.GetIO().WantCaptureKeyboard)
             return;
-#endif
 
         float speed = KeyBinder.IsPressed(Key.ShiftLeft) ? 10 : .25f;
 
@@ -275,10 +257,8 @@ internal class Program
 
     static void Move(MouseMoveEventArgs e)
     {
-#if SPEEDMAPPER_IMGUI
         if (ImGui.GetIO().WantCaptureMouse)
             return;
-#endif
 
         if (e.State.IsButtonDown(MouseButton.Left))
         {
@@ -301,7 +281,6 @@ internal class Program
         }
     }
 
-#if SPEEDMAPPER_IMGUI
     static void ImGuiRender(object? sender, double delta)
     {
         if (sender is not VeldridRenderContext ctx) return;
@@ -322,6 +301,7 @@ internal class Program
     static void ImGuiInterface(double delta, VeldridRenderContext ctx)
     {
         #region High-level stats
+
         if (ImGui.Begin("Stats"))
         {
             ImGui.Text("Total Objects: " + ctx.TotalObjects);
@@ -331,80 +311,47 @@ internal class Program
             ImGui.Text("Cam X: " + ctx.Camera.Position.X);
             ImGui.Text("Cam Y: " + ctx.Camera.Position.Y);
             ImGui.Text("Cam Z: " + ctx.Camera.Position.Z);
-
-            if (ctx.Camera is IFrustumCamera cam)
-            {
-                ImGui.Text("Target X: " + cam.Target.X);
-                ImGui.Text("Target Y: " + cam.Target.Y);
-                ImGui.Text("Target Z: " + cam.Target.Z);
-            }
         }
 
         ImGui.End();
+
         #endregion
 
         #region Stream zone
+
         if (ImGui.Begin("Sceneries in stream zone"))
         {
             ImGui.Text("Total: " + ctx.RenderedSceneries.Count);
             ImGui.Spacing();
 
             foreach (var scenery in ctx.RenderedSceneries)
-                ImGui.Text("Name: null (lol) | Id: " + scenery.VisibleSectionId);
+                ImGui.Text("Id: " + scenery.VisibleSectionId);
         }
 
         ImGui.End();
-        #endregion
 
-        #region Camera
-
-        if (ImGui.Begin("Camera"))
-        {
-            ImGui.Text($"Position: {_camera.Position.X:000.0000} {_camera.Position.Y:000.0000} {_camera.Position.Z:000.0000}");
-            ImGui.Text($"Target: {_camera.Target.X:0.0000} {_camera.Target.Y:0.0000} {_camera.Target.Z:0.0000}");
-            ImGui.Text($"Up: {_camera.CameraUp.X:0.00} {_camera.CameraUp.Y:0.00} {_camera.CameraUp.Z:0.00}");
-            ImGui.Text($"Right: {_camera.CameraRight.X:0.00} {_camera.CameraRight.Y:0.00} {_camera.CameraRight.Z:0.00}");
-
-            if (_camera is IFrustumCamera cam && ImGui.Button("Snapshot/Reset view matrix"))
-            {
-                cam.ViewSnapshot = cam.ViewSnapshot is null ? _camera.View : null;
-            }
-
-            /*if (_camera is IFrustumCamera camera && ImGui.Button("Debug print frustum"))
-            {
-                camera.DebugDrawFrustum();
-            }*/
-
-            if (ImGui.CollapsingHeader("View Matrix"))
-            {
-                ImGui.Text($"[ {_camera.View.M11:0.0000} {_camera.View.M12:0.0000} {_camera.View.M13:0.0000} {_camera.View.M14:0.0000} ]");
-                ImGui.Text($"[ {_camera.View.M21:0.0000} {_camera.View.M22:0.0000} {_camera.View.M23:0.0000} {_camera.View.M24:0.0000} ]");
-                ImGui.Text($"[ {_camera.View.M31:0.0000} {_camera.View.M32:0.0000} {_camera.View.M33:0.0000} {_camera.View.M34:0.0000} ]");
-                ImGui.Text($"[ {_camera.View.M41:0.0000} {_camera.View.M42:0.0000} {_camera.View.M43:0.0000} {_camera.View.M44:0.0000} ]");
-            }
-        }
-
-        ImGui.End();
         #endregion
 
         #region Region loading box
+
         if (ctx.IsLoading && BeginMessageBox("Loading..."))
             ImGui.Text("Loading region please wait...");
 
         ImGui.End();
+
         #endregion
 
         #region Key binds
 
         if (ImGui.Begin("Key binds", ImGuiWindowFlags.NoSavedSettings))
         {
-            if (ImGui.BeginTable("Key binds", 3))
+            if (ImGui.BeginTable("Key binds", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.NoSavedSettings))
             {
                 ImGui.TableSetupColumn("Name");
                 ImGui.TableSetupColumn("Key");
                 ImGui.TableSetupColumn("Pressed");
 
-                foreach ((Key _, KeyBind<Key> key) in KeyBinder.KeyBinds)
+                foreach ((Key _, KeyBinder<Key>.KeyBind key) in KeyBinder.KeyBinds)
                 {
                     ImGui.TableNextRow();
 
@@ -427,7 +374,7 @@ internal class Program
 
         #endregion
 
-        ImGui.ShowDemoWindow();
+        UserInterface.DrawUI();
     }
 
     private static void SetupImGuiStyle()
@@ -471,5 +418,4 @@ internal class Program
 
         return result;
     }
-#endif
 }
