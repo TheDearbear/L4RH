@@ -1,9 +1,10 @@
-﻿using L4RH.Readers;
-using L4RH;
+﻿using L4RH;
+using L4RH.Model.Sceneries;
+using L4RH.Readers;
 using System.Numerics;
+
 using SceneryClass = L4RH.Model.Sceneries.Scenery;
 using SceneryInstanceClass = L4RH.Model.Sceneries.SceneryInstance;
-using L4RH.Model.Sceneries;
 
 namespace UG2Mappings.SceneryReaders;
 
@@ -21,11 +22,11 @@ internal class SceneryInstance : IChunkReader
         span.AlignPosition();
         var chunkStart = span.Pointer - start;
 
-        var size = (uint)(length - chunkStart) / 0x40;
+        var size = (length - chunkStart) / 0x40;
 
         for (var i = 0; i < size; i++)
         {
-            var sinfo = new SceneryInstanceClass(scenery)
+            var instance = new SceneryInstanceClass(scenery)
             {
                 BoundBoxMin = span.ReadStruct<Vector3>(),
                 BoundBoxMax = span.ReadStruct<Vector3>(),
@@ -41,29 +42,27 @@ internal class SceneryInstance : IChunkReader
 
             span.Pointer += 2;
 
-            var matrix = Matrix4x4.Identity with
-            {
-                M11 = -v1.X, M12 = v1.Z, M13 = v1.Y,
-                M21 = v2.X, M22 = v2.Y, M23 = v2.Z,
-                M31 = v3.X, M32 = v3.Y, M33 = v3.Z,
-                M41 = -pos.X, M42 = pos.Y, M43 = pos.Z, M44 = 1
-            };
+            // Create matrix from vectors
+            var matrix = new Matrix4x4(
+                v1.X,  v1.Y,  v1.Z, 0,
+                v2.X,  v2.Y,  v2.Z, 0,
+                v3.X,  v3.Y,  v3.Z, 0,
+               pos.X, pos.Y, pos.Z, 1);
 
             // Replace YZ
-            /*Vector4 one = matrix.GetRow(1);
-            Vector4 two = matrix.GetRow(2);
-            matrix.SetRow(1, two);
-            matrix.SetRow(2, one);
+            if (Matrix4x4.Decompose(matrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
+            {
+                var scaleMatrix = Matrix4x4.CreateScale(scale);
+                var rotationMatrix = Matrix4x4.CreateFromQuaternion(new(rotation.Y, -rotation.Z, rotation.X, rotation.W));
+                var translationMatrix = Matrix4x4.CreateTranslation(translation);
 
-            one = matrix.GetColumn(1);
-            two = matrix.GetColumn(2);
-            matrix.SetColumn(1, two);
-            matrix.SetColumn(2, one);*/
+                matrix = scaleMatrix * rotationMatrix * translationMatrix;
+            }
 
             // Write matrix
-            sinfo.InstanceMatrix = matrix;
+            instance.InstanceMatrix = matrix;
 
-            scenery.ObjectInstances.Add(sinfo);
+            scenery.ObjectInstances.Add(instance);
         }
     }
 }

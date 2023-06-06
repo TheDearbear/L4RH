@@ -9,14 +9,15 @@ layout (set = 2, binding = 1) uniform sampler TextureSampler;
 layout (location = 0) out vec4 FragColor;
 
 void main() {
+	float colorMult = 0.3;
 
-	vec4 imageColor = texture(sampler2D(Texture, TextureSampler), outTexPos);
-	vec4 color;
+	vec2 texPos = outTexPos;
+	texPos.x = -texPos.x;
 
-	float colorMult = 0.2;
+	vec4 imageColor = texture(sampler2D(Texture, TextureSampler), texPos);
+	vec4 color = imageColor * (1 - colorMult) + outColor * colorMult;
 
-	color = imageColor * (1 - colorMult) + outColor * colorMult;
-	color.w = imageColor.w;
+	if (color.w < 0.04) discard;
 
 	FragColor = color;
 }

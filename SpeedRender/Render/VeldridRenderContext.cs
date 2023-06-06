@@ -1,23 +1,23 @@
 ﻿using Speed.Engine.Camera;
+using Speed.Engine.Camera.Frustum;
+using Speed.Engine.Cache;
 using Speed.Engine.Texture;
+using Speed.Engine.SceneryObjects;
 using System.Diagnostics;
 using System.Numerics;
+using System.Text;
 using L4RH;
 using L4RH.Model;
-using Veldrid;
-using Veldrid.SPIRV;
-using System.Text;
-using Speed.Engine.Camera.Frustum;
-using Speed.Engine.SceneryObjects;
-using Speed.Engine.Cache;
 using L4RH.Model.Solids;
 using L4RH.Model.Sceneries;
+using Veldrid;
+using Veldrid.SPIRV;
 
 namespace Speed.Engine.Render;
 
 public sealed class VeldridRenderContext : IRenderContext
 {
-    public event EventHandler<(double Delta, InputSnapshot? Input)>? NewLogicFrame;
+    public event IRenderContext.LogicEventHandler? NewLogicFrame;
     public event EventHandler<double>? NewRenderFrame;
 
     public IDictionary<uint, IObjectTexture> TextureStorage { get; } = new Dictionary<uint, IObjectTexture>();
@@ -119,7 +119,10 @@ public sealed class VeldridRenderContext : IRenderContext
 
     public void Dispose()
     {
-        //
+        _cameraSet.Dispose();
+        _pipeline.Dispose();
+        _projection.Dispose();
+        _view.Dispose();
     }
 
     public void Resize(uint width, uint height)
@@ -136,7 +139,7 @@ public sealed class VeldridRenderContext : IRenderContext
 
     public void DoLogic(double delta, InputSnapshot? input)
     {
-        NewLogicFrame?.Invoke(this, new(delta, input));
+        NewLogicFrame?.Invoke(this, delta, input);
     }
 
     private void OnRender(object? sender, double e)

@@ -8,7 +8,6 @@ using L4RH.Model.Solids;
 using L4RH.Model.Textures;
 using Speed.Engine.Camera;
 using Speed.Engine.Camera.Frustum;
-using Speed.Engine.DebugUtils;
 using Speed.Engine.Render;
 using System;
 using System.Collections.Generic;
@@ -25,6 +24,8 @@ internal class Program
 {
     static bool _loaded = false;
     static FreeMoveCamera _camera = null!;
+    static KeyBinder<Key> KeyBinder = new();
+
 #if SPEEDMAPPER_IMGUI
     static ImGuiRenderer _imgui = null!;
 #endif
@@ -40,9 +41,25 @@ internal class Program
         var oldOut = Console.Out;
         Console.SetOut(Single.Logger);
 
+        #region Key Binder
+        
+        Console.WriteLine("Initializing Key Binds");
+
+        KeyBinder.AddKeyBind(Key.W, "Camera forward key");
+        KeyBinder.AddKeyBind(Key.A, "Camera left key");
+        KeyBinder.AddKeyBind(Key.S, "Camera backward key");
+        KeyBinder.AddKeyBind(Key.D, "Camera right key");
+        KeyBinder.AddKeyBind(Key.Space, "Camera up key");
+        KeyBinder.AddKeyBind(Key.ControlLeft, "Camera down key");
+        KeyBinder.AddKeyBind(Key.ShiftLeft, "Camera boost key");
+
+        #endregion
+
         Console.WriteLine("Creating window");
 
         #region Init Render
+
+        #region Window/Backend Creating
 
         Single.MainWindow = VeldridStartup.CreateWindow(new(50, 50, 1280, 720, WindowState.Normal, "Veldrid SpeedMapper"));
         Single.GraphicsDevice = VeldridStartup.CreateGraphicsDevice(Single.MainWindow, new GraphicsDeviceOptions()
@@ -51,38 +68,46 @@ internal class Program
             PreferStandardClipSpaceYDirection = true,
             ResourceBindingModel = ResourceBindingModel.Improved,
             SyncToVerticalBlank = true,
-            SwapchainDepthFormat = PixelFormat.R32_Float,
-#if DEBUG
-            Debug = true
-#endif
-        }, GraphicsBackend.Direct3D11);
+            SwapchainDepthFormat = PixelFormat.R32_Float
+        });
+
+        #endregion
 
         _camera = new FreeMoveCamera() { AspectRatio = 16f / 9, FOV = 75, ZFar = 5000 };
+
 #if SPEEDMAPPER_IMGUI
         _imgui = new(Single.GraphicsDevice, Single.GraphicsDevice.SwapchainFramebuffer.OutputDescription, Single.MainWindow.Width, Single.MainWindow.Height);
         SetupImGuiStyle();
 #endif
 
-        Single.MainWindow.KeyDown += KeyDown;
-        Single.MainWindow.MouseMove += Move;
+        #region Window Setup
 
+        Single.MainWindow.MouseMove += Move;
         Single.MainWindow.Resized += () =>
         {
             Single.MainRenderContext.Resize((uint)Single.MainWindow.Width, (uint)Single.MainWindow.Height);
+
 #if SPEEDMAPPER_IMGUI
             _imgui.WindowResized(Single.MainWindow.Width, Single.MainWindow.Height);
 #endif
         };
 
+        #endregion
+
+        #region Render Context Setup
+
         Single.MainRenderContext = new VeldridRenderContext(Single.GraphicsDevice, _camera) { BackgroundColor = new(0, 0, 0, 255) };
         Single.MainRenderContext.NewLogicFrame += OnLogic;
+
 #if SPEEDMAPPER_IMGUI
         Single.MainRenderContext.NewRenderFrame += ImGuiRender;
 #endif
 
         #endregion
 
-        new DebugCube(Single.GraphicsDevice, (VeldridRenderContext)Single.MainRenderContext);
+        #endregion
+
+        // new DebugCube(Single.GraphicsDevice, (VeldridRenderContext)Single.MainRenderContext);
 
         Console.WriteLine("Show window");
         
@@ -109,7 +134,7 @@ internal class Program
         Console.WriteLine("Goodbye!");
     }
 
-    static void OnLogic(object? sender, (double Delta, InputSnapshot? Input) e)
+    static void OnLogic(object? sender, double delta, InputSnapshot? input)
     {
         if (sender is null || sender is not IRenderContext context)
             return;
@@ -122,18 +147,27 @@ internal class Program
             _loaded = false;
         }
 
+        if (input is not null)
+        {
 #if SPEEDMAPPER_IMGUI
-        if (e.Input is not null)
-            _imgui.Update((float)(e.Delta / 1000), e.Input);
+            _imgui.Update((float)(delta / 1000), input);
 #endif
+
+            KeyBinder.Update(input.KeyEvents.Select(e => new ValueTuple<Key, bool>(e.Key, e.Down)));
+        }
+
+        KeyLogic();
     }
 
     static void LoadRegion()
     {
         var loader = new ChunkDeserializer();
-        loader.ReadersSources.Add(Assembly.LoadFile("D:\\L4RH\\csharp\\UG2Mappings\\bin\\Debug\\net6.0\\UG2Mappings.dll"));
-        loader.AddDataFromFile("D:\\L4RH\\L4RH.BUN");
-        loader.AddDataFromFile("D:\\L4RH\\STREAML4RH.BUN");
+
+        char diskLetter = typeof(Program).Assembly.Location[0];
+
+        loader.ReadersSources.Add(Assembly.LoadFile(diskLetter + ":\\L4RH\\csharp\\UG2Mappings\\bin\\Debug\\net6.0\\UG2Mappings.dll"));
+        loader.AddDataFromFile(diskLetter + ":\\L4RH\\L4RA.BUN");
+        loader.AddDataFromFile(diskLetter + ":\\L4RH\\STREAML4RA.BUN");
 
         loader.SerializationEndedChunks += (sender, chunks) =>
         {
@@ -200,39 +234,38 @@ internal class Program
         loader.Start();
     }
 
-    static void KeyDown(KeyEvent key)
+    static void KeyLogic()
     {
 #if SPEEDMAPPER_IMGUI
         if (ImGui.GetIO().WantCaptureKeyboard)
             return;
 #endif
 
-        float speed = key.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
+        float speed = KeyBinder.IsPressed(Key.ShiftLeft) ? 10 : .25f;
 
-
-        if (key.Key == Key.W)
+        if (KeyBinder.IsPressed(Key.W))
         {
-            _camera.Forward(speed);
+            _camera.LerpForward(speed, .5f);
         }
-        if (key.Key == Key.A)
+        if (KeyBinder.IsPressed(Key.A))
         {
-            _camera.Left(speed);
+            _camera.LerpLeft(speed, .5f);
         }
-        if (key.Key == Key.S)
+        if (KeyBinder.IsPressed(Key.S))
         {
-            _camera.Backward(speed);
+            _camera.LerpBackward(speed, .5f);
         }
-        if (key.Key == Key.D)
+        if (KeyBinder.IsPressed(Key.D))
         {
-            _camera.Right(speed);
+            _camera.LerpRight(speed, .5f);
         }
-        if (key.Key == Key.Space)
+        if (KeyBinder.IsPressed(Key.Space))
         {
             Vector3 pos = _camera.Position;
             pos.Y += speed;
             _camera.Position = pos;
         }
-        if (key.Key == Key.ControlLeft)
+        if (KeyBinder.IsPressed(Key.ControlLeft))
         {
             Vector3 pos = _camera.Position;
             pos.Y -= speed;
@@ -361,6 +394,39 @@ internal class Program
         ImGui.End();
         #endregion
 
+        #region Key binds
+
+        if (ImGui.Begin("Key binds", ImGuiWindowFlags.NoSavedSettings))
+        {
+            if (ImGui.BeginTable("Key binds", 3))
+            {
+                ImGui.TableSetupColumn("Name");
+                ImGui.TableSetupColumn("Key");
+                ImGui.TableSetupColumn("Pressed");
+
+                foreach ((Key _, KeyBind<Key> key) in KeyBinder.KeyBinds)
+                {
+                    ImGui.TableNextRow();
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(key.Name);
+
+                    ImGui.TableNextColumn();
+                    ImGui.Text(key.Binding.ToString());
+                    
+                    ImGui.TableNextColumn();
+                    ImGui.Text(key.Pressed.ToString());
+                }
+
+                ImGui.EndTable();
+            }
+
+        }
+
+        ImGui.End();
+
+        #endregion
+
         ImGui.ShowDemoWindow();
     }
 
@@ -369,7 +435,7 @@ internal class Program
         var style = ImGui.GetStyle();
 
         style.WindowRounding = 0;
-        style.Colors[(int)ImGuiCol.TitleBg] = HexToVector(0x00D2FFFFu);
+        style.Colors[(int)ImGuiCol.TitleBg] = HexToVector(0x00BDE5FFu);
     }
 
     private static Vector4 HexToVector(uint color)

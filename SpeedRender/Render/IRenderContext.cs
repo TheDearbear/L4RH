@@ -9,10 +9,12 @@ namespace Speed.Engine.Render;
 
 public interface IRenderContext : IDisposable
 {
+    public delegate void LogicEventHandler(object sender, double delta, InputSnapshot? input);
+
     /// <summary>
     /// Should be used when you implementing your logic code (Keyboard, Calculations, ...)
     /// </summary>
-    event EventHandler<(double Delta, InputSnapshot? Input)>? NewLogicFrame;
+    event LogicEventHandler? NewLogicFrame;
 
     /// <summary>
     /// Should be used when you implementing your render code (Draw in render context)
