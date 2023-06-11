@@ -1,4 +1,5 @@
 ﻿using L4RH;
+using Speed.Math;
 using System.Diagnostics.CodeAnalysis;
 using Veldrid;
 
@@ -82,5 +83,5 @@ public sealed class VeldridObjectTexture : IObjectTexture
         => x?.GetHashCode() == y?.GetHashCode();
 
     public int GetHashCode([DisallowNull] IObjectTexture obj)
-        => (int)Name.SpeedHash();
+        => (int)Hashes.Bin(Name);
 }

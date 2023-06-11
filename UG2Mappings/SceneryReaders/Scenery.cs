@@ -17,7 +17,7 @@ public class Scenery : ISceneryReader
         if (span.ReadUInt32() != span.Length - 8)
             throw new ArgumentException("Chunk size mismatch!");
 
-        var scenery = new SceneryClass();
+        var scenery = new SceneryClass() { Offset = (uint)dataBasePosition };
 
         var header = new ScenerySectionHeader();
         var info = new SceneryInfo();

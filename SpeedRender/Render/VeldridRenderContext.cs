@@ -3,6 +3,7 @@ using Speed.Engine.Camera.Frustum;
 using Speed.Engine.Cache;
 using Speed.Engine.Texture;
 using Speed.Engine.SceneryObjects;
+using Speed.Math;
 using System.Diagnostics;
 using System.Numerics;
 using System.Text;
@@ -35,7 +36,8 @@ public sealed class VeldridRenderContext : IRenderContext
     public int TotalObjects { get; private set; }
     public int TotalRendered { get; private set; }
     public bool IsLoading { get; private set; }
-    public List<Scenery> RenderedSceneries { get; private set; } = new();
+    private List<TrackSection> _renderedSections = new();
+    public IReadOnlyList<TrackSection> RenderedSections { get => _renderedSections; }
 
     private readonly GraphicsDevice _device;
     private readonly CommandList _cmd;
@@ -158,49 +160,51 @@ public sealed class VeldridRenderContext : IRenderContext
 
         _cmd.SetGraphicsResourceSet(0, _cameraSet);
 
-        RenderedSceneries = Region.Sceneries.Where(scenery =>
+        #region Find Currently Visible Sections
+
+        _renderedSections = Region.Sections.Where(section => section.Visible?.IsInPolygon(Camera.Position) == true || (section.Id / 100) == 26).ToList();
+
+        var neighbors = new List<TrackSection>();
+        foreach (var section in RenderedSections)
         {
-            var section = Region.VisibleSections.FirstOrDefault(section => section.Id == scenery.VisibleSectionId);
+            if (section.Visible is null)
+                continue;
 
-            return section is not null && ((section.Id / 100) == 26 || section.IsInPolygon(Camera.Position));
-        }).ToList();
+            IEnumerable<TrackSection>? neighborsForSection = section.Visible?.CanSeeIds
+                .Select(id => Region.Sections.FirstOrDefault(section => section.Id == id))
+                .Where(section => section is not null && !RenderedSections.Any(rendered => rendered.Id == section.Id))
+                .Cast<TrackSection>();
 
-        var neighbors = new List<Scenery>();
-        foreach (var scenery in RenderedSceneries)
-        {
-            IEnumerable<Scenery>? neighborsForScenery = Region.VisibleSections.FirstOrDefault(section => section.Id == scenery.VisibleSectionId)?.CanSeeIds
-                .Select(id => Region.VisibleSections.FirstOrDefault(section => section.Id == id))
-                .Where(section => section is not null && !RenderedSceneries.Any(rendered => rendered.VisibleSectionId == section.Id))
-                .SelectMany(section => Region.Sceneries.Where(scenery => scenery.VisibleSectionId == section?.Id));
-
-            if (neighborsForScenery is not null)
-                foreach (var neighbor in neighborsForScenery)
+            if (neighborsForSection is not null)
+                foreach (var neighbor in neighborsForSection)
                     if (!neighbors.Contains(neighbor))
                         neighbors.Add(neighbor);
         }
-        RenderedSceneries.AddRange(neighbors);
+        _renderedSections.AddRange(neighbors);
+
+        #endregion
 
         IFrustumCamera? frustum = Camera as IFrustumCamera;
         TotalRendered = 0;
 
-        foreach (var scenery in RenderedSceneries)
-            foreach (var objInfo in scenery.ObjectInfos)
+        foreach (var section in RenderedSections)
+        {
+            if (section.Scenery is null)
+                continue;
+
+            foreach (var objInfo in section.Scenery.ObjectInfos)
             {
                 if (objInfo is not VeldridObjectInfo info) continue;
                 if (!info.ModelLoaded) continue;
 
-                // Currently skipping global section (26xx)
-                if (scenery.VisibleSectionId / 100 == 26) continue;
-
-                IEnumerable<SceneryInstance> instances = scenery.ObjectInstances.Where(instance => instance.Info == objInfo); //&& frustum?.IsOnFrustum(instance) != false);
-
                 // I should fix frustum ¯\_(ツ)_/¯
-                // if (frustum is not null && !frustum.IsOnFrustum(instance)) continue;
+                IEnumerable<SceneryInstance> instances = section.Scenery.ObjectInstances.Where(instance => instance.Info == objInfo); //&& frustum?.IsOnFrustum(instance) != false);
 
-                //Matrix4x4[] instanceMatrices = instances.Select(instance => instance.InstanceMatrix).ToArray();
                 // TODO: Rebuild instance buffer only when something in instances changes, not every frame
-                //for (int i = 0; i < instanceMatrices.Length; i++)
-                //    _cmd.UpdateBuffer(info.InstancesBuffer, (uint)i * 64, instanceMatrices[i].ToArray());
+                //
+                // Matrix4x4[] instanceMatrices = instances.Select(instance => instance.InstanceMatrix).ToArray();
+                // for (int i = 0; i < instanceMatrices.Length; i++)
+                //     _cmd.UpdateBuffer(info.InstancesBuffer, (uint)i * 64, instanceMatrices[i].ToArray());
 
                 _cmd.SetVertexBuffer(0, info.VertexBuffer);
                 _cmd.SetVertexBuffer(1, info.InstancesBuffer);
@@ -223,13 +227,13 @@ public sealed class VeldridRenderContext : IRenderContext
                     }
                 }
             }
-
-        //if (frustum is not null)
-        //    frustum.DebugDrawFrustum(_cmd);
+        }
 
         _cmd.End();
 
         _device.SubmitCommands(_cmd);
+
+        _renderedSections.Sort((section1, section2) => section1.Name.CompareTo(section2.Name));
     }
 
     private static TextureFormat? TypeToFormat(byte type)
@@ -272,7 +276,7 @@ public sealed class VeldridRenderContext : IRenderContext
         foreach (var pack in (region ?? Region).TexturePacks)
             foreach (var texture in pack)
             {
-                if (hash == texture.Name.SpeedHash())
+                if (hash == Hashes.Bin(texture.Name))
                 {
                     TextureFormat? format = TypeToFormat(texture.CompressionType);
                     if (format is null && texture.CompressionType != 8) continue;
@@ -318,20 +322,21 @@ public sealed class VeldridRenderContext : IRenderContext
         return -1;
     }
 
-    public void UpdateRegion(Region region)
+    public RegionUpdateStatus UpdateRegion(Region region)
     {
         UnloadRegion();
-        LoadRegion(region);
+        return LoadRegion(region);
     }
 
     private void UnloadRegion()
     {
         if (Region is null) return;
 
-        foreach (var scenery in Region.Sceneries)
-            foreach (var objInfo in scenery.ObjectInfos)
-                if (objInfo is VeldridObjectInfo info)
-                    info.UnloadModel(this);
+        foreach (var section in Region.Sections)
+            if (section.Scenery is not null)
+                foreach (var objInfo in section.Scenery.ObjectInfos)
+                    if (objInfo is VeldridObjectInfo info)
+                        info.UnloadModel(this);
 
         foreach (var texture in TextureStorage)
             texture.Value.UnloadTexture();
@@ -339,30 +344,48 @@ public sealed class VeldridRenderContext : IRenderContext
         TextureStorage.Clear();
     }
 
-    private void LoadRegion(Region newRegion)
+    private RegionUpdateStatus LoadRegion(Region newRegion)
     {
         IsLoading = true;
 
+        var status = new RegionUpdateStatus();
+
         Task.Run(() =>
         {
-            for (int i = 0; i < newRegion.Sceneries.Count; i++)
+            status.SectionsTotal = newRegion.Sections.Where(section => section.Scenery is not null).Count();
+
+            int sectionCount = 0;
+            foreach (var section in newRegion.Sections)
             {
-                var scenery = newRegion.Sceneries[i];
-                for (int j = 0; j < scenery.ObjectInfos.Count; j++)
+                if (section.Scenery is null) continue;
+
+                status.SectionsLoaded = sectionCount++;
+                status.InfoTotal = section.Scenery.ObjectInfos.Count;
+
+                for (int j = 0; j < section.Scenery.ObjectInfos.Count; j++)
                 {
-                    IEnumerable<SceneryInstance> instances = scenery.ObjectInstances.Where(instance => instance.Info == scenery.ObjectInfos[j]);
+                    status.InfoLoaded = j;
 
-                    if (scenery.ObjectInfos[j] is not VeldridObjectInfo)
+                    IEnumerable<SceneryInstance> instances = section.Scenery.ObjectInstances.Where(instance => instance.Info == section.Scenery.ObjectInfos[j]);
+
+                    if (section.Scenery.ObjectInfos[j] is not VeldridObjectInfo)
                     {
-                        var info = scenery.ObjectInfos[j];
+                        var info = section.Scenery.ObjectInfos[j];
 
-                        SolidObject? solid = newRegion.Sections.FirstOrDefault(section => section.Solids.Any(obj => obj.Key == info.SolidMeshKey1))?.Solids.FirstOrDefault(solid => solid.Key == info.SolidMeshKey1);
+                        SolidObject? solid = null;
+                        foreach (var solidSection in newRegion.Sections)
+                        {
+                            solid = solidSection.Solids?.FirstOrDefault(solid => solid.Key == info.SolidMeshKey1);
+
+                            if (solid is not null) break;
+                        }
+
                         if (solid is null) continue;
 
-                        newRegion.Sceneries[i].ObjectInfos[j] = CreateMesh(solid, instances.Count(), scenery.ObjectInfos[j], newRegion);
+                        section.Scenery.ObjectInfos[j] = CreateMesh(solid, instances.Count(), section.Scenery.ObjectInfos[j], newRegion);
                     }
 
-                    var objInfo = (VeldridObjectInfo)scenery.ObjectInfos[j];
+                    var objInfo = (VeldridObjectInfo)section.Scenery.ObjectInfos[j];
                     objInfo.LoadModel(this);
 
                     // TODO: Remove this code because of needing in implementation of buffer rebuilding after instance/camera changes
@@ -374,7 +397,9 @@ public sealed class VeldridRenderContext : IRenderContext
             Region = newRegion;
         });
 
-        TotalObjects = newRegion.Sceneries.Select(s => s.ObjectInstances.Count).Sum();
+        TotalObjects = newRegion.Sections.Select(s => s.Scenery?.ObjectInstances.Count ?? 0).Sum();
+
+        return status;
     }
 
     public VeldridObjectInfo CreateObject(SolidObject solid, int instances = 1, SceneryInfo? info = null)

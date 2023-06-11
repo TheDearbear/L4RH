@@ -4,7 +4,7 @@ using L4RH.Readers;
 
 namespace UG2Mappings.TexturePackReaders;
 
-public class TexturePackData : IChunkReader
+internal class TexturePackData : IChunkReader
 {
     public uint ChunkId => 0xB3320000;
 

@@ -1,5 +1,4 @@
 ﻿using L4RH.Model;
-using L4RH.Model.Sceneries;
 using L4RH.Model.Textures;
 using Speed.Engine.ObjectTracking;
 
@@ -7,13 +6,11 @@ namespace Speed.Engine.TrackableModel;
 
 public class TrackableRegion : Region
 {
-    public NotifyList<RegionSection> TrackableSections { get; set; } = new();
-    public NotifyList<Scenery> TrackableSceneries { get; set; } = new();
+    public NotifyList<TrackSection> TrackableSections { get; set; } = new();
     public NotifyList<TexturePack> TrackableTexturePacks { get; set; } = new();
     public NotifyList<CollisionVolume> TrackableVolumes { get; set; } = new();
-    public NotifyList<VisibleSection> TrackableVisibleSections { get; set; } = new();
 
-    public override IList<RegionSection> Sections
+    public override IList<TrackSection> Sections
     {
         get => TrackableSections;
         set
@@ -22,18 +19,6 @@ public class TrackableRegion : Region
 
             TrackableSections.Clear();
             TrackableSections.AddRange(value);
-        }
-    }
-
-    public override IList<Scenery> Sceneries
-    {
-        get => TrackableSceneries;
-        set
-        {
-            if (value == TrackableSceneries) return;
-
-            TrackableSceneries.Clear();
-            TrackableSceneries.AddRange(value);
         }
     }
 
@@ -58,18 +43,6 @@ public class TrackableRegion : Region
 
             TrackableVolumes.Clear();
             TrackableVolumes.AddRange(value);
-        }
-    }
-
-    public override IList<VisibleSection> VisibleSections
-    {
-        get => TrackableVisibleSections;
-        set
-        {
-            if (value == TrackableVisibleSections) return;
-
-            TrackableVisibleSections.Clear();
-            TrackableVisibleSections.AddRange(value);
         }
     }
 }

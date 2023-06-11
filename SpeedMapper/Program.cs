@@ -1,11 +1,10 @@
 ﻿using ImGuiNET;
 using L4RH;
 using L4RH.Model;
-using L4RH.Model.Sceneries;
 using L4RH.Model.Solids;
 using L4RH.Model.Textures;
+using L4RH.Readers;
 using Speed.Engine.Camera;
-using Speed.Engine.Camera.Frustum;
 using Speed.Engine.Render;
 using System;
 using System.Collections.Generic;
@@ -22,12 +21,14 @@ internal class Program
 {
     static bool _loaded = false;
     static FreeMoveCamera _camera = null!;
-    static KeyBinder<Key> KeyBinder = new();
     static ImGuiRenderer _imgui = null!;
+    static RegionUpdateStatus? _regionLoading = null;
 
     static void Main()
     {
         Console.WriteLine("Hello, World!");
+
+        PopulateReaders(typeof(Program).Assembly.Location[0] + ":\\L4RH\\csharp\\UG2Mappings\\bin\\Debug\\net6.0\\UG2Mappings.dll");
 
         Single.Region = new();
         LoadRegion();
@@ -40,13 +41,13 @@ internal class Program
         
         Console.WriteLine("Initializing Key Binds");
 
-        KeyBinder.AddKeyBind(Key.W, "Camera forward key");
-        KeyBinder.AddKeyBind(Key.A, "Camera left key");
-        KeyBinder.AddKeyBind(Key.S, "Camera backward key");
-        KeyBinder.AddKeyBind(Key.D, "Camera right key");
-        KeyBinder.AddKeyBind(Key.Space, "Camera up key");
-        KeyBinder.AddKeyBind(Key.ControlLeft, "Camera down key");
-        KeyBinder.AddKeyBind(Key.ShiftLeft, "Camera boost key");
+        Single.KeyBinder.AddKeyBind(Key.W, "Camera forward key");
+        Single.KeyBinder.AddKeyBind(Key.A, "Camera left key");
+        Single.KeyBinder.AddKeyBind(Key.S, "Camera backward key");
+        Single.KeyBinder.AddKeyBind(Key.D, "Camera right key");
+        Single.KeyBinder.AddKeyBind(Key.Space, "Camera up key");
+        Single.KeyBinder.AddKeyBind(Key.ControlLeft, "Camera down key");
+        Single.KeyBinder.AddKeyBind(Key.ShiftLeft, "Camera boost key");
 
         #endregion
 
@@ -70,7 +71,7 @@ internal class Program
 
         _camera = new FreeMoveCamera() { AspectRatio = 16f / 9, FOV = 75, ZFar = 5000 };
         _imgui = new(Single.GraphicsDevice, Single.GraphicsDevice.SwapchainFramebuffer.OutputDescription, Single.MainWindow.Width, Single.MainWindow.Height);
-        SetupImGuiStyle();
+        SetupImGui();
 
         #region Window Setup
 
@@ -92,8 +93,6 @@ internal class Program
         #endregion
 
         #endregion
-
-        // new DebugCube(Single.GraphicsDevice, (VeldridRenderContext)Single.MainRenderContext);
 
         Console.WriteLine("Show window");
         
@@ -128,7 +127,7 @@ internal class Program
         if (_loaded)
         {
             Console.WriteLine("Updating Region. Please wait...");
-            context.UpdateRegion(Single.Region);
+            _regionLoading = context.UpdateRegion(Single.Region);
             _loaded = false;
         }
 
@@ -136,7 +135,7 @@ internal class Program
         {
             _imgui.Update((float)(delta / 1000), input);
 
-            KeyBinder.Update(input.KeyEvents.Select(e => new ValueTuple<Key, bool>(e.Key, e.Down)));
+            Single.KeyBinder.Update(input.KeyEvents.Select(e => new ValueTuple<Key, bool>(e.Key, e.Down)));
         }
 
         KeyLogic();
@@ -147,11 +146,13 @@ internal class Program
         var loader = new ChunkDeserializer();
 
         char diskLetter = typeof(Program).Assembly.Location[0];
+        const string region = "L4RA";
 
-        loader.ReadersSources.Add(Assembly.LoadFile(diskLetter + ":\\L4RH\\csharp\\UG2Mappings\\bin\\Debug\\net6.0\\UG2Mappings.dll"));
+        loader.ReadersSources.AddRange(Single.Mappings);
+
         loader.AddDataFromFile(diskLetter + ":\\L4RH\\GlobalB.lzc");
-        loader.AddDataFromFile(diskLetter + ":\\L4RH\\L4RA.BUN");
-        loader.AddDataFromFile(diskLetter + ":\\L4RH\\STREAML4RA.BUN");
+        loader.AddDataFromFile(diskLetter + ":\\L4RH\\" + region + ".BUN");
+        loader.AddDataFromFile(diskLetter + ":\\L4RH\\STREAM" + region + ".BUN");
 
         loader.SerializationEndedChunks += (sender, chunks) =>
         {
@@ -159,55 +160,47 @@ internal class Program
             foreach (var (ChunkId, Data) in chunks)
                 switch (Data)
                 {
-                    case IList<RegionSection> sections:
-                        Console.WriteLine("Sections");
-                        Single.Region.Sections = sections;
+                    case IList<TrackSection> sections:
+                        if (Single.Region.Sections.Any())
+                        {
+                            foreach (var dataSection in sections)
+                                Single.Region.Sections.Add(dataSection);
+                        }
+                        else Single.Region.Sections = sections;
+
                         break;
 
                     case SolidObjectList list:
-                        Console.WriteLine("Solids");
-                        RegionSection? section = Single.Region.Sections.FirstOrDefault(section => section.Name == list.ParentSectionName);
+                        if (!Single.Region.Sections.Any())
+                            break;
 
-                        if (section is null)
+                        TrackSection section = Single.Region.Sections.First(section => section.Name == list.ParentSectionName);
+
+                        if (section.Solids is not null && section.Solids.Any())
                         {
-                            Single.Region.Sections.Add(section = new RegionSection()
-                            {
-                                Name = /*"UNLISTED " +*/ list.ParentSectionName,
-                                Usable = true,
-                                Id = -1
-                            });
-                        }
-
-                        if (section.Solids.Count == 0)
-                            section.Solids = list;
-                        else
                             foreach (var solid in list)
                                 section.Solids.Add(solid);
+                        }
+                        else section.Solids = list;
 
-                        break;
-
-                    case Scenery scenery:
-                        Console.WriteLine("Scenery");
-                        Single.Region.Sceneries.Add(scenery);
                         break;
 
                     case TexturePack pack:
-                        Console.WriteLine("Textures");
                         Single.Region.TexturePacks.Add(pack);
                         break;
 
                     case IList<CollisionVolume> volumes:
-                        Console.WriteLine("Volumes");
-                        Single.Region.Volumes = volumes;
-                        break;
+                        if (Single.Region.Volumes.Any())
+                        {
+                            foreach (var dataVolume in volumes)
+                                Single.Region.Volumes.Add(dataVolume);
+                        }
+                        else Single.Region.Volumes = volumes;
 
-                    case IList<VisibleSection> visibleSections:
-                        Console.WriteLine("Visible Sections");
-                        Single.Region.VisibleSections = visibleSections;
                         break;
 
                     default:
-                        Single.Logger.Warn($"Unknown chunk 0x{ChunkId:X8}");
+                        Single.Logger.Warn($"Unhandled chunk of type {Data.GetType().Name} (0x{ChunkId:X8})");
                         break;
                 };
 
@@ -223,31 +216,31 @@ internal class Program
         if (ImGui.GetIO().WantCaptureKeyboard)
             return;
 
-        float speed = KeyBinder.IsPressed(Key.ShiftLeft) ? 10 : .25f;
+        float speed = Single.KeyBinder.IsPressed(Key.ShiftLeft) ? 10 : .25f;
 
-        if (KeyBinder.IsPressed(Key.W))
+        if (Single.KeyBinder.IsPressed(Key.W))
         {
             _camera.LerpForward(speed, .5f);
         }
-        if (KeyBinder.IsPressed(Key.A))
+        if (Single.KeyBinder.IsPressed(Key.A))
         {
             _camera.LerpLeft(speed, .5f);
         }
-        if (KeyBinder.IsPressed(Key.S))
+        if (Single.KeyBinder.IsPressed(Key.S))
         {
             _camera.LerpBackward(speed, .5f);
         }
-        if (KeyBinder.IsPressed(Key.D))
+        if (Single.KeyBinder.IsPressed(Key.D))
         {
             _camera.LerpRight(speed, .5f);
         }
-        if (KeyBinder.IsPressed(Key.Space))
+        if (Single.KeyBinder.IsPressed(Key.Space))
         {
             Vector3 pos = _camera.Position;
             pos.Y += speed;
             _camera.Position = pos;
         }
-        if (KeyBinder.IsPressed(Key.ControlLeft))
+        if (Single.KeyBinder.IsPressed(Key.ControlLeft))
         {
             Vector3 pos = _camera.Position;
             pos.Y -= speed;
@@ -262,22 +255,19 @@ internal class Program
 
         if (e.State.IsButtonDown(MouseButton.Left))
         {
-
             _camera.Pitch -= Single.MainWindow.MouseDelta.Y / 5;
             _camera.Yaw += Single.MainWindow.MouseDelta.X / 5;
 
-            if (_camera.Pitch > 89)
-                _camera.Pitch = 89;
-            if (_camera.Pitch < -89)
-                _camera.Pitch = -89;
+            if (_camera.Pitch > 90)
+                _camera.Pitch = 90;
+            if (_camera.Pitch < -90)
+                _camera.Pitch = -90;
 
-            var x = Math.Cos(_camera.Yaw * Math.PI / 180) * Math.Cos(_camera.Pitch * Math.PI / 180);
-            var y = Math.Sin(_camera.Pitch * Math.PI / 180);
-            var z = Math.Sin(_camera.Yaw * Math.PI / 180) * Math.Cos(_camera.Pitch * Math.PI / 180);
+            var x = MathF.Cos(_camera.Yaw * MathF.PI / 180) * MathF.Cos(_camera.Pitch * MathF.PI / 180);
+            var y = MathF.Sin(_camera.Pitch * MathF.PI / 180);
+            var z = MathF.Sin(_camera.Yaw * MathF.PI / 180) * MathF.Cos(_camera.Pitch * MathF.PI / 180);
 
-            _camera.Target = Vector3.Normalize(new((float)x, (float)y, (float)z));
-
-            //Console.WriteLine($"Delta: {delta} | Yaw: {_camera.Yaw} | Pitch: {_camera.Pitch}");
+            _camera.Target = Vector3.Normalize(new(x, y, z));
         }
     }
 
@@ -300,8 +290,8 @@ internal class Program
 
     static void ImGuiInterface(double delta, VeldridRenderContext ctx)
     {
-        #region High-level stats
-
+        ImGui.DockSpaceOverViewport(ImGui.GetMainViewport(), ImGuiDockNodeFlags.PassthruCentralNode);
+        
         if (ImGui.Begin("Stats"))
         {
             ImGui.Text("Total Objects: " + ctx.TotalObjects);
@@ -312,77 +302,34 @@ internal class Program
             ImGui.Text("Cam Y: " + ctx.Camera.Position.Y);
             ImGui.Text("Cam Z: " + ctx.Camera.Position.Z);
         }
-
         ImGui.End();
-
-        #endregion
-
-        #region Stream zone
-
-        if (ImGui.Begin("Sceneries in stream zone"))
-        {
-            ImGui.Text("Total: " + ctx.RenderedSceneries.Count);
-            ImGui.Spacing();
-
-            foreach (var scenery in ctx.RenderedSceneries)
-                ImGui.Text("Id: " + scenery.VisibleSectionId);
-        }
-
-        ImGui.End();
-
-        #endregion
-
-        #region Region loading box
 
         if (ctx.IsLoading && BeginMessageBox("Loading..."))
+        {
             ImGui.Text("Loading region please wait...");
 
-        ImGui.End();
-
-        #endregion
-
-        #region Key binds
-
-        if (ImGui.Begin("Key binds", ImGuiWindowFlags.NoSavedSettings))
-        {
-            if (ImGui.BeginTable("Key binds", 3, ImGuiTableFlags.Borders | ImGuiTableFlags.NoSavedSettings))
+            if (_regionLoading is not null)
             {
-                ImGui.TableSetupColumn("Name");
-                ImGui.TableSetupColumn("Key");
-                ImGui.TableSetupColumn("Pressed");
+                ImGui.Spacing();
 
-                foreach ((Key _, KeyBinder<Key>.KeyBind key) in KeyBinder.KeyBinds)
-                {
-                    ImGui.TableNextRow();
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(key.Name);
-
-                    ImGui.TableNextColumn();
-                    ImGui.Text(key.Binding.ToString());
-                    
-                    ImGui.TableNextColumn();
-                    ImGui.Text(key.Pressed.ToString());
-                }
-
-                ImGui.EndTable();
+                ImGui.Text($"Sections loaded: {_regionLoading.SectionsLoaded} / {_regionLoading.SectionsTotal}");
+                ImGui.Text($"Info in section loaded: {_regionLoading.InfoLoaded} / {_regionLoading.InfoTotal}");
             }
-
         }
-
         ImGui.End();
-
-        #endregion
 
         UserInterface.DrawUI();
     }
 
-    private static void SetupImGuiStyle()
+    private static void SetupImGui()
     {
         var style = ImGui.GetStyle();
+        var io = ImGui.GetIO();
 
         style.WindowRounding = 0;
         style.Colors[(int)ImGuiCol.TitleBg] = HexToVector(0x00BDE5FFu);
+
+        io.ConfigFlags |= ImGuiConfigFlags.DockingEnable;
     }
 
     private static Vector4 HexToVector(uint color)
@@ -417,5 +364,26 @@ internal class Program
         }
 
         return result;
+    }
+
+    static void PopulateReaders(string path)
+    {
+        try
+        {
+            var asm = Assembly.LoadFrom(path);
+
+            IEnumerable<Type> types = asm.GetExportedTypes().Where(t => t.GetInterface(nameof(IChunkReader)) is not null);
+            foreach (Type type in types)
+            {
+                if (Activator.CreateInstance(type) is not IChunkReader chunkReader) continue;
+                if (Single.Mappings.Any(m => m.ChunkId == chunkReader.ChunkId)) continue;
+
+                Single.Mappings.Add(chunkReader);
+            }
+        }
+        catch (Exception e)
+        {
+            throw new ApplicationException("Unable to get/activate derived class from interface " + nameof(IChunkReader), e);
+        }
     }
 }

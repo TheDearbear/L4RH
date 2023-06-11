@@ -1,6 +1,7 @@
 ﻿using L4RH;
 using L4RH.Model.Sceneries;
 using L4RH.Readers;
+using Speed.Math;
 using System.Numerics;
 
 using SceneryClass = L4RH.Model.Sceneries.Scenery;
@@ -50,12 +51,22 @@ internal class SceneryInstance : IChunkReader
                pos.X, pos.Y, pos.Z, 1);
 
             // Replace YZ
-            if (Matrix4x4.Decompose(matrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
+            //if (Matrix4x4.Decompose(matrix, out Vector3 scale, out Quaternion rotation, out Vector3 translation))
+            //{
+            //    var scaleMatrix = Matrix4x4.CreateScale(scale);
+            //    var rotationMatrix = Matrix4x4.CreateFromQuaternion(new(rotation.X, -rotation.Z, rotation.Y, rotation.W));
+            //    var translationMatrix = Matrix4x4.CreateTranslation(translation);
+
+            //    matrix = scaleMatrix * rotationMatrix * translationMatrix;
+            //}
+
+            if (matrix.Decompose(out var projection, out var translation, out var scale, out var shear, out var rotation))
             {
                 var scaleMatrix = Matrix4x4.CreateScale(scale);
                 var rotationMatrix = Matrix4x4.CreateFromQuaternion(new(rotation.X, -rotation.Z, rotation.Y, rotation.W));
                 var translationMatrix = Matrix4x4.CreateTranslation(translation);
 
+                // Uhh, dude, now i need to multiply them right back after transformation... (currently it will be SRT matrix)
                 matrix = scaleMatrix * rotationMatrix * translationMatrix;
             }
 

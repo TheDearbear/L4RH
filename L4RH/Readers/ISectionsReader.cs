@@ -4,5 +4,5 @@ namespace L4RH.Readers;
 
 public interface ISectionsReader : IChunkReader
 {
-    IList<RegionSection> Deserialize(BinarySpan span, long dataBasePosition);
+    IList<TrackSection> Deserialize(BinarySpan span, long dataBasePosition);
 }

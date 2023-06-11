@@ -4,11 +4,8 @@
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Speed.Math</RootNamespace>
   </PropertyGroup>
-
-  <ItemGroup>
-	  <ProjectReference Include="..\SpeedMath\SpeedMath.csproj" />
-	  <ProjectReference Include="..\L4RH\L4RH.csproj" />
-  </ItemGroup>
 
 </Project>

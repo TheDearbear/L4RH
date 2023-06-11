@@ -31,10 +31,12 @@ public interface IRenderContext : IDisposable
     Region Region { get; }
     Vector4 BackgroundColor { get; set; }
 
+    IReadOnlyList<TrackSection> RenderedSections { get; }
+
     void Resize(uint width, uint height);
 
     void DoRender(double delta);
     void DoLogic(double delta, InputSnapshot? input);
 
-    void UpdateRegion(Region region);
+    RegionUpdateStatus UpdateRegion(Region region);
 }

@@ -15,7 +15,7 @@ public interface ICamera
     public float ZNear { get; set; }
     public float ZFar { get; set; }
 
-    public Matrix4x4 Perspective => Matrix4x4.CreatePerspectiveFieldOfView((float)(FOV * Math.PI / 180), AspectRatio, ZNear, ZFar);
+    public Matrix4x4 Perspective => Matrix4x4.CreatePerspectiveFieldOfView((float)(FOV * System.Math.PI / 180), AspectRatio, ZNear, ZFar);
     public Matrix4x4 View { get; }
 
     public static Vector3 DirectionForward => DirectionBackward * -1;

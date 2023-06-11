@@ -16,6 +16,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\SpeedMath\SpeedMath.csproj" />
     <ProjectReference Include="..\L4RH\L4RH.csproj" />
   </ItemGroup>
 

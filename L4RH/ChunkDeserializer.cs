@@ -1,6 +1,8 @@
-﻿using L4RH.Readers;
+﻿using L4RH.Model;
+using L4RH.Model.Sceneries;
+using L4RH.Readers;
 using System.Buffers.Binary;
-using System.Reflection;
+using System.Numerics;
 
 using WaitTaskData = (System.Threading.Tasks.Task<byte[]> Task, System.Threading.CancellationTokenSource CancellationTokenSource);
 using EventChunkData = (uint ChunkId, object Data);
@@ -9,11 +11,10 @@ namespace L4RH;
 
 public class ChunkDeserializer
 {
-    public IEnumerable<byte> Data { get; private set; } = Enumerable.Empty<byte>();
-    public List<Assembly> ReadersSources { get; } = new();
+    public IList<byte[]> Data { get; private set; } = new List<byte[]>();
+    public List<IChunkReader> ReadersSources { get; } = new();
     public SortedSet<long> NewFileMarkers { get; } = new();
 
-    public event EventHandler<EventChunkData>? FoundChunk;
     public event Action? SerializationEnded;
     public event EventHandler<List<EventChunkData>>? SerializationEndedChunks;
 
@@ -23,8 +24,11 @@ public class ChunkDeserializer
 
     public void AddData(byte[] data)
     {
-        NewFileMarkers.Add(Data.Count());
-        Data = Data.Concat(data);
+        long lastMarker = NewFileMarkers.LastOrDefault();
+        int lengthOfPreviousData = Data.Any() ? Data.Last().Length : 0;
+
+        NewFileMarkers.Add(lastMarker + lengthOfPreviousData);
+        Data.Add(data);
     }
 
     public void AddDataFromFile(string path)
@@ -35,17 +39,22 @@ public class ChunkDeserializer
 
     public void ClearData()
     {
-        Data = Enumerable.Empty<byte>();
+        Data.Clear();
         NewFileMarkers.Clear();
 
         foreach (var tuple in _waitTasks)
-            tuple.Item2.Cancel();
+            tuple.CancellationTokenSource.Cancel();
 
         _waitTasks.Clear();
     }
 
     public Task Start()
     {
+        _chunkReaders.Clear();
+
+        foreach (IChunkReader reader in ReadersSources)
+            _chunkReaders.TryAdd(reader.ChunkId, reader);
+     
         Action run = () =>
         {
             lock (Data)
@@ -65,30 +74,21 @@ public class ChunkDeserializer
 
                 #endregion
 
-                #region Fill ChunkReaders
+                #region Create BinarySpan from Data
 
-                foreach (Assembly asm in ReadersSources)
+                Span<byte> spanData = Span<byte>.Empty;
+
+                if (Data.Any())
                 {
-                    try
-                    {
-                        IEnumerable<Type> types = asm.GetExportedTypes().Where(t => t.GetInterface(nameof(IChunkReader)) is not null);
-                        foreach (Type type in types)
-                        {
-                            if (Activator.CreateInstance(type) is not IChunkReader chunkReader) return;
-                            if (_chunkReaders.ContainsKey(chunkReader.ChunkId)) return;
-
-                            _chunkReaders.Add(chunkReader.ChunkId, chunkReader);
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        throw new ApplicationException("Unable to get/create derived class from interface " + nameof(IChunkReader), e);
-                    }
+                    if (Data.Count > 1)
+                        spanData = Data.SelectMany(array => array).ToArray().AsSpan();
+                    else
+                        spanData = Data.First().AsSpan();
                 }
 
-                #endregion
+                var span = new BinarySpan(spanData);
 
-                var span = new BinarySpan(Data.ToArray().AsSpan());
+                #endregion
 
                 while (span.Pointer < span.Length)
                 {
@@ -105,7 +105,8 @@ public class ChunkDeserializer
 
                     span.Pointer = chunkStart;
 
-                    // JDLZ Compressed Chunk
+                    #region Process JDLZ Chunk
+
                     if (id == 0x5A4C444A && length == 0x00001002)
                     {
                         var compressedSize = BinaryPrimitives.ReadInt32LittleEndian(span.Span.Slice(span.Pointer + 12, 4));
@@ -116,12 +117,13 @@ public class ChunkDeserializer
                         decompressedReader.AddData(decompressed);
                         decompressedReader.ReadersSources.AddRange(ReadersSources);
 
-                        decompressedReader.FoundChunk += FoundChunk;
                         decompressedReader.SerializationEndedChunks += (sender, list) => _allChunks.AddRange(list);
 
                         decompressedReader.Start().Wait();
                         continue;
                     }
+
+                    #endregion
 
                     var chunkBuffer = new BinarySpan(span.ReadArray(length + 8));
 
@@ -137,7 +139,6 @@ public class ChunkDeserializer
 
                     EventChunkData result = new(id, obj);
 
-                    FoundChunk?.Invoke(this, result);
                     if (SerializationEndedChunks is not null)
                         _allChunks.Add(result);
                 }
@@ -146,7 +147,53 @@ public class ChunkDeserializer
 
         run += () =>
         {
-            _chunkReaders.Clear();
+            #region Post-Processing
+
+            var visibles = _allChunks.FirstOrDefault(data => data.Data is IList<VisibleSection>).Data as IList<VisibleSection>;
+            var sections = _allChunks.FirstOrDefault(data => data.Data is IList<TrackSection>).Data as IList<TrackSection>;
+
+            var sceneries = _allChunks.Where(data => data.Data is Scenery)
+                                    .Select(data => (Scenery)data.Data)
+                                    .ToDictionary(scenery => scenery.Offset);
+
+            if (sections?.Any() == true)
+            {
+                var sectionsToAdd = sceneries.Where(scenery => !sections.Any(section => section.Id == scenery.Value.VisibleSectionId && section.Visible is not null));
+
+                foreach ((uint offset, Scenery scenery) in sectionsToAdd)
+                {
+                    var section = new TrackSection()
+                    {
+                        AssociatedChunkOffset = scenery.Offset,
+                        Center = Vector2.Zero,
+                        Id = scenery.VisibleSectionId,
+                        Name = TrackSection.IdToName((ushort)scenery.VisibleSectionId),
+                        Radius = 0,
+                        Scenery = scenery,
+                        Visible = visibles?.FirstOrDefault(v => v.Id == scenery.VisibleSectionId)
+                    };
+
+                    sections?.Add(section);
+                    sceneries.Remove(offset);
+                }
+
+                foreach (var section in sections)
+                {
+                    if (section.Scenery is null && sceneries.TryGetValue(section.AssociatedChunkOffset, out Scenery? scenery))
+                        section.Scenery = scenery;
+
+                    if (section.Visible is null && visibles?.Any() == true)
+                    {
+                        var visible = visibles.FirstOrDefault(v => v.Id == section.Id);
+
+                        if (visible is not null)
+                            section.Visible = visible;
+                    }
+                }
+            }
+
+            #endregion
+
             SerializationEnded?.Invoke();
             SerializationEndedChunks?.Invoke(this, _allChunks);
             _allChunks.Clear();

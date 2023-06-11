@@ -1,9 +1,6 @@
 ﻿using L4RH.Model.Sceneries;
-using Speed.Engine.DebugUtils;
 using Speed.Engine.SceneryObjects;
-using System.Diagnostics;
 using System.Numerics;
-using Veldrid;
 
 namespace Speed.Engine.Camera.Frustum;
 
@@ -24,30 +21,6 @@ public interface IFrustumCamera : ICamera
     //    RightPlane = new(Vector3.Cross(ZFar * Target - CameraRight * (ZFar * (float)Math.Tan(FOV * .5) * AspectRatio), CameraUp), Position)
     //};
 
-    public void DebugDrawFrustum(CommandList list)
-    {
-        var view = ViewSnapshot ?? View;
-
-        var mat = Perspective * Matrix4x4.Transpose(view);
-        FrustumBox frustum = new()
-        {
-            LeftPlane = new(mat.M41 + mat.M11, mat.M42 + mat.M12, mat.M43 + mat.M13, mat.M44 + mat.M14),
-            RightPlane = new(mat.M41 - mat.M11, mat.M42 - mat.M12, mat.M43 - mat.M13, mat.M44 - mat.M14),
-            TopPlane = new(mat.M41 - mat.M21, mat.M42 - mat.M22, mat.M43 - mat.M23, mat.M44 - mat.M34),
-            BottomPlane = new(mat.M41 + mat.M21, mat.M42 + mat.M22, mat.M43 + mat.M23, mat.M44 + mat.M34),
-            NearPlane = new(mat.M41 + mat.M31, mat.M42 + mat.M32, mat.M43 + mat.M33, mat.M44 + mat.M34),
-            FarPlane = new(mat.M41 - mat.M31, mat.M42 - mat.M32, mat.M43 - mat.M33, mat.M44 - mat.M34)
-        };
-
-        void DrawPlanes(params Vector4[] planes)
-        {
-            foreach (var plane in planes)
-                DebugCube.Draw(new Vector3(plane.X, plane.Y, plane.Z) * 100, list);
-        }
-
-        DrawPlanes(frustum.LeftPlane, frustum.RightPlane, frustum.TopPlane, frustum.BottomPlane, frustum.NearPlane, frustum.FarPlane);
-    }
-
     public bool IsOnFrustum(SceneryInstance instance)
     {
         if (instance.Info is not SceneryObjectInfo info) return false;
@@ -66,20 +39,6 @@ public interface IFrustumCamera : ICamera
             IsFrustum(f.TopPlane) && IsFrustum(f.BottomPlane);
     }
 
-        //Vector3 meshDataPos = instance.BoundBoxMin + (instance.BoundBoxMax - instance.BoundBoxMin) / 2;
-
-        //Vector3 pos = meshDataPos + info.Solid.Matrix.Translation + instance.Position;
-
-        //return false; //instance.Mesh.Name.Contains("CONE") || instance.Mesh.Name.Contains("SKYDOM") ||
-               //Vector3.Distance(pos, Position) < rad &&
-            //f.LeftPlane.DistanceToPlane(pos) < rad &&
-            //f.RightPlane.DistanceToPlane(pos) < rad &&
-            //f.FarPlane.DistanceToPlane(pos) < rad &&
-            //f.NearPlane.DistanceToPlane(pos) < rad &&
-            //f.TopPlane.DistanceToPlane(pos) < rad &&
-            //f.BottomPlane.DistanceToPlane(pos) < rad;
-    //}
-
     private FrustumBox GetFrustum(SceneryInstance instance)
     {
         var view = ViewSnapshot ?? View;
@@ -94,23 +53,6 @@ public interface IFrustumCamera : ICamera
             NearPlane   = new(mat.M41 + mat.M31, mat.M42 + mat.M32, mat.M43 + mat.M33, mat.M44 + mat.M34),
             FarPlane    = new(mat.M41 - mat.M31, mat.M42 - mat.M32, mat.M43 - mat.M33, mat.M44 - mat.M34)
         };
-    }
-
-    private static void NormalizeBox(FrustumBox box)
-    {
-        box.LeftPlane = NormalizeAsFrustum(box.LeftPlane);
-        box.RightPlane = NormalizeAsFrustum(box.RightPlane);
-        box.TopPlane = NormalizeAsFrustum(box.TopPlane);
-        box.BottomPlane = NormalizeAsFrustum(box.BottomPlane);
-        box.NearPlane = NormalizeAsFrustum(box.NearPlane);
-        box.FarPlane = NormalizeAsFrustum(box.FarPlane);
-    }
-
-    private static Vector4 NormalizeAsFrustum(Vector4 v)
-    {
-        var mag = new Vector3(v.X, v.Y, v.Z).Length();
-
-        return v / mag;
     }
 
     //public FrustumBox FrustumBox
