@@ -1,4 +1,6 @@
-﻿namespace L4RH.Model.Sceneries;
+﻿using System;
+
+namespace L4RH.Model.Sceneries;
 
 [Flags]
 public enum InstanceFlags : ushort

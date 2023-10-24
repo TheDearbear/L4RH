@@ -1,4 +1,6 @@
-﻿namespace L4RH.Readers;
+﻿using System;
+
+namespace L4RH.Readers;
 
 public interface IChunkReader
 {

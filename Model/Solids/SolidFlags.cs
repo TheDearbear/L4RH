@@ -1,4 +1,6 @@
-﻿namespace L4RH.Model.Solids;
+﻿using System;
+
+namespace L4RH.Model.Solids;
 
 [Flags]
 public enum SolidFlags : ushort
