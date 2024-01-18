@@ -4,9 +4,9 @@ namespace L4RH.Compression;
 
 public static class LZ
 {
-    public const int HEADER_SIZE = 16;
+    public const uint LZHEADER_SIZE = 16;
 
-    public enum Algorithm : uint
+    public enum Id : uint
     {
         /// <summary>
         /// <see cref="JLZ"/> alternative for better compression ratios in some cases
@@ -38,14 +38,14 @@ public static class LZ
 
     public struct Header
     {
-        public Algorithm Algorithm;
+        public Id Id;
 
         public byte Version;
-        public byte Unknown;
+        public byte HeaderSize;
         public ushort Flags;
 
-        public int UncompressedSize;
-        public int CompressedSize;
+        public uint UncompressedSize;
+        public uint CompressedSize;
     }
 
     public static byte[] Decompress(byte[] input)
@@ -59,7 +59,7 @@ public static class LZ
         else throw new ArgumentException("Invalid data passed or this compression algorithm is not supported!", nameof(input));
     }
 
-    public static byte[] Compress(byte[] input, Algorithm? preferred = null)
+    public static byte[] Compress(byte[] input, Id? preferred = null)
     {
         if (preferred == null)
         {
@@ -68,7 +68,7 @@ public static class LZ
             
             if (huffData.Length <= jlzData.Length)
             {
-                if (input.Length + HEADER_SIZE < huffData.Length)
+                if (input.Length + LZHEADER_SIZE < huffData.Length)
                     return RAW.Compress(input);
 
                 return huffData;
@@ -77,13 +77,13 @@ public static class LZ
             return jlzData;
         }
 
-        if (preferred == Algorithm.JLZ)
+        if (preferred == Id.JLZ)
             return JLZ.Compress(input);
 
-        if (preferred == Algorithm.HUFF)
+        if (preferred == Id.HUFF)
             return HUFF.Compress(input);
 
-        if (preferred == Algorithm.OLDLZ)
+        if (preferred == Id.OLDLZ)
             return OldLZ.Compress(input);
 
         return RAW.Compress(input);

@@ -16,7 +16,7 @@ namespace L4RH.Compression;
 public static class OldLZ
 {
     public static bool IsOldLZ(byte[] input)
-        => input.Length >= LZ.HEADER_SIZE && input[0] == 'C' && input[1] == 'O' && input[2] == 'M' && input[3] == 'P' && input[4] == 0x01;
+        => input.Length >= unchecked((int)LZ.LZHEADER_SIZE) && input[0] == 'C' && input[1] == 'O' && input[2] == 'M' && input[3] == 'P' && input[4] == 0x01;
 
     /// <remarks>
     /// This should work... In theory
@@ -30,7 +30,7 @@ public static class OldLZ
         var header = span.ReadStruct<LZ.Header>();
 
         if (header.Flags == 1)
-            return span.Span.Slice(LZ.HEADER_SIZE, header.CompressedSize).ToArray();
+            return span.Span.Slice(unchecked((int)LZ.LZHEADER_SIZE), unchecked((int)header.CompressedSize)).ToArray();
 
         Span<byte> pbVar2;
         byte[] output = new byte[header.UncompressedSize];

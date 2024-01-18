@@ -17,7 +17,7 @@ public static class HUFF
     public const int ZERO = 0;
 
     public static bool IsHUFF(byte[] input)
-        => input.Length >= LZ.HEADER_SIZE && input[0] == 'H' && input[1] == 'U' && input[2] == 'F' && input[3] == 'F' && input[4] == 0x01;
+        => input.Length >= LZ.LZHEADER_SIZE && input[0] == 'H' && input[1] == 'U' && input[2] == 'F' && input[3] == 'F' && input[4] == 0x01;
 
     public static byte[] Decompress(byte[] input)
     {

@@ -20,7 +20,7 @@ namespace L4RH.Compression;
 public static class JLZ
 {
     public static bool IsJLZ(byte[] input)
-        => input.Length >= LZ.HEADER_SIZE && input[0] == 'J' && input[1] == 'D' && input[2] == 'L' && input[3] == 'Z' && input[4] == 0x02;
+        => input.Length >= LZ.LZHEADER_SIZE && input[0] == 'J' && input[1] == 'D' && input[2] == 'L' && input[3] == 'Z' && input[4] == 0x02;
 
     public static byte[] Decompress(byte[] input)
     {
@@ -29,7 +29,7 @@ public static class JLZ
 
         int flags1 = 1, flags2 = 1;
         int t, length;
-        int inPos = LZ.HEADER_SIZE, outPos = 0;
+        int inPos = unchecked((int)LZ.LZHEADER_SIZE), outPos = 0;
 
         byte[] output = new byte[BitConverter.ToInt32(input, 8)];
 
@@ -96,7 +96,7 @@ public static class JLZ
         const int MinMatchLength = 3;
 
         int inputBytes = input.Length;
-        byte[] output = new byte[inputBytes + (inputBytes + 7) / 8 + LZ.HEADER_SIZE + 1];
+        byte[] output = new byte[inputBytes + (inputBytes + 7) / 8 + LZ.LZHEADER_SIZE + 1];
         int[] hashPos = new int[hashSize];
         int[] hashChain = new int[inputBytes];
 
